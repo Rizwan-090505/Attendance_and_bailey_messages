@@ -33,41 +33,63 @@ function askQuestion(query) {
 // === Delay helper ===
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
-// === Fetch UNSENT messages from Supabase ===
-async function getMessages(startDate, endDate) {
-  console.log(`📥 Step 1: Fetching UNSENT messages from ${startDate} to ${endDate}...`);
+// === Deduplicate UNSENT messages in DB (delete mode) ===
+async function deduplicateTable() {
+  console.log("🗑️ Deduplicating UNSENT messages in table...");
 
   const { data, error } = await supabase
     .from("messages")
-    .select("id, number, text, created_at")
-    .eq("sent", false)
-    .gte("created_at", startDate)
-    .lte("created_at", endDate);
+    .select("id, number, text, sent, created_at")
+    .eq("sent", false) // ❗ only unsent
+    .order("created_at", { ascending: true });
 
   if (error) {
     console.error("❌ Error fetching messages:", error.message);
-    process.exit(1);
+    return [];
   }
 
-  console.log(`ℹ️ Step 2: Raw fetched rows: ${data.length}`);
-  console.log(data);
+  const seen = new Set();
+  const duplicates = [];
 
-  const contacts = data
-    .filter((m) => m.number)
-    .map((m) => {
-      const raw = m.number.toString().replace(/[^0-9]/g, "");
-      let jid = "";
-      if (raw.startsWith("92") && raw.length >= 11) {
-        jid = `${raw}@s.whatsapp.net`;
-      } else if (raw.startsWith("3") && raw.length === 10) {
-        jid = `92${raw}@s.whatsapp.net`;
-      }
-      return { id: m.id, jid, text: m.text };
-    })
-    .filter((m) => m.jid);
+  for (const row of data) {
+    const key = `${row.number}|${row.text}`; // duplicate key = number+text
+    if (seen.has(key)) {
+      duplicates.push(row.id);
+    } else {
+      seen.add(key);
+    }
+  }
 
-  console.log(`✅ Step 3: Valid WhatsApp contacts ready: ${contacts.length}`);
-  return contacts;
+  console.log(`ℹ️ Found ${duplicates.length} duplicate UNSENT messages.`);
+
+  if (duplicates.length > 0) {
+    const { error: delError } = await supabase
+      .from("messages")
+      .delete()
+      .in("id", duplicates);
+
+    if (delError) {
+      console.error("⚠️ Failed to delete duplicates:", delError.message);
+    } else {
+      console.log(`✔️ Deleted ${duplicates.length} duplicates permanently`);
+    }
+  } else {
+    console.log("✅ No duplicates found among UNSENT messages.");
+  }
+
+  // return deduped UNSENT messages
+  const { data: cleanData, error: fetchError } = await supabase
+    .from("messages")
+    .select("id, number, text, created_at")
+    .eq("sent", false)
+    .order("created_at", { ascending: true });
+
+  if (fetchError) {
+    console.error("❌ Error refetching unique UNSENT messages:", fetchError.message);
+    return [];
+  }
+
+  return cleanData;
 }
 
 // === Mark message as sent in DB ===
@@ -144,12 +166,14 @@ async function connectBot(messages) {
 (async () => {
   console.log("🚀 Starting message sender script...");
 
+  // Step 1: Deduplicate UNSENT in DB + refetch unique unsent
+  const uniqueUnsent = await deduplicateTable();
+
   const startDateInput = await askQuestion("Enter start date (YYYY-MM-DD or 0 for today): ");
   const endDateInput = await askQuestion("Enter end date (YYYY-MM-DD or 0 for today): ");
 
   let startDate, endDate;
 
-  // If both are "0" or empty, default to today
   if ((!startDateInput || startDateInput === "0") && (!endDateInput || endDateInput === "0")) {
     const today = new Date().toISOString().split("T")[0];
     startDate = `${today}T00:00:00Z`;
@@ -162,12 +186,28 @@ async function connectBot(messages) {
 
   console.log(`📅 Using timestamp range: ${startDate} → ${endDate}`);
 
-  const messages = await getMessages(startDate, endDate);
+  // Step 2: Filter deduped set by date range and format numbers
+  const messages = uniqueUnsent
+    .filter((m) => m.created_at >= startDate && m.created_at <= endDate)
+    .map((m) => {
+      const raw = m.number.toString().replace(/[^0-9]/g, "");
+      let jid = "";
+      if (raw.startsWith("92") && raw.length >= 11) {
+        jid = `${raw}@s.whatsapp.net`;
+      } else if (raw.startsWith("3") && raw.length === 10) {
+        jid = `92${raw}@s.whatsapp.net`;
+      }
+      return { id: m.id, jid, text: m.text };
+    })
+    .filter((m) => m.jid);
+
+  console.log(`✅ Final unique UNSENT messages in range: ${messages.length}`);
 
   if (messages.length === 0) {
     console.log("⚠️ No UNSENT messages found for this date range.");
     process.exit(0);
   }
 
+  // Step 3: Connect and send
   connectBot(messages);
 })();
