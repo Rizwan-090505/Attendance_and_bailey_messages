@@ -33,6 +33,26 @@ function askQuestion(query) {
 // === Delay helper ===
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
+// --- Helper to parse YYYY-MM-DD safely ---
+function parseDate(input, isEnd = false) {
+  if (!input || input.trim() === "" || input === "0") {
+    const now = new Date();
+    return isEnd
+      ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
+      : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+  }
+
+  const [y, m, d] = input.split("-").map(Number);
+  if (!y || !m || !d) {
+    throw new Error(`❌ Invalid date format: ${input}`);
+  }
+
+  return isEnd
+    ? new Date(y, m - 1, d, 23, 59, 59)  // local end of day
+    : new Date(y, m - 1, d, 0, 0, 0);    // local start of day
+}
+
+
 // === Deduplicate UNSENT messages in DB (delete mode) ===
 async function deduplicateTable() {
   console.log("🗑️ Deduplicating UNSENT messages in table...");
@@ -40,7 +60,7 @@ async function deduplicateTable() {
   const { data, error } = await supabase
     .from("messages")
     .select("id, number, text, sent, created_at")
-    .eq("sent", false) // ❗ only unsent
+    .eq("sent", false) // only unsent
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -106,6 +126,21 @@ async function markAsSent(id) {
   }
 }
 
+// === Phone number → WhatsApp JID ===
+function formatNumberToJid(number) {
+  let raw = number.toString().replace(/[^0-9]/g, "");
+
+  // handle local 03XXXXXXXXX format
+  if (raw.startsWith("0") && raw.length === 11) {
+    raw = "92" + raw.slice(1);
+  }
+  // already in 92XXXXXXXXXX
+  if (raw.startsWith("92") && raw.length === 12) {
+    return `${raw}@s.whatsapp.net`;
+  }
+  return null; // invalid
+}
+
 // === Connect to WhatsApp and send ===
 async function connectBot(messages) {
   console.log("🔄 Step 4: Initializing WhatsApp connection...");
@@ -130,7 +165,11 @@ async function connectBot(messages) {
       const shouldReconnect =
         (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
       console.log("❌ Connection closed:", lastDisconnect?.error);
-      if (shouldReconnect) connectBot(messages);
+      if (shouldReconnect) {
+        console.log("🔄 Reconnecting...");
+        await delay(5000);
+        connectBot(messages);
+      }
     } else if (connection === "open") {
       console.log("✅ Step 6: Connected to WhatsApp");
 
@@ -156,7 +195,7 @@ async function connectBot(messages) {
         }
       }
 
-      console.log("🏁 Step 9: All messages attempted.");
+      console.log("🏁 Step 9: All messages attempted.");// graceful close
       process.exit(0);
     }
   });
@@ -172,31 +211,22 @@ async function connectBot(messages) {
   const startDateInput = await askQuestion("Enter start date (YYYY-MM-DD or 0 for today): ");
   const endDateInput = await askQuestion("Enter end date (YYYY-MM-DD or 0 for today): ");
 
-  let startDate, endDate;
+  const startDate = parseDate(startDateInput, false);
+  const endDate = parseDate(endDateInput, true);
 
-  if ((!startDateInput || startDateInput === "0") && (!endDateInput || endDateInput === "0")) {
-    const today = new Date().toISOString().split("T")[0];
-    startDate = `${today}T00:00:00Z`;
-    endDate = `${today}T23:59:59Z`;
-    console.log(`📅 No dates given, using TODAY: ${today}`);
-  } else {
-    startDate = `${startDateInput}T00:00:00Z`;
-    endDate = `${endDateInput}T23:59:59Z`;
-  }
-
-  console.log(`📅 Using timestamp range: ${startDate} → ${endDate}`);
+console.log(
+  `📅 Using timestamp range: ${startDate.toLocaleString()} → ${endDate.toLocaleString()}`
+);
+  console.log(`📅 Using timestamp range: ${startDate.toISOString()} → ${endDate.toISOString()}`);
 
   // Step 2: Filter deduped set by date range and format numbers
   const messages = uniqueUnsent
-    .filter((m) => m.created_at >= startDate && m.created_at <= endDate)
+    .filter((m) => {
+      const t = new Date(m.created_at).getTime();
+      return t >= startDate.getTime() && t <= endDate.getTime();
+    })
     .map((m) => {
-      const raw = m.number.toString().replace(/[^0-9]/g, "");
-      let jid = "";
-      if (raw.startsWith("92") && raw.length >= 11) {
-        jid = `${raw}@s.whatsapp.net`;
-      } else if (raw.startsWith("3") && raw.length === 10) {
-        jid = `92${raw}@s.whatsapp.net`;
-      }
+      const jid = formatNumberToJid(m.number);
       return { id: m.id, jid, text: m.text };
     })
     .filter((m) => m.jid);
