@@ -48,7 +48,7 @@ function generateStyledTemplate(record) {
     <span class="amount-due">Rs. ${record.def_amount}</span>
     ادا نہیں ہوئے اور آپ کا ٹیلی فون عدم ادائیگی کی وجہ سے مستقل بند ہو چکا ہے۔`;
   
-  const urduPoint1 = `آپ سے درخواست ہے کہ براہ کرم اپنے 
+  const urduPoint1 = `   آ پ سے درخواست ہے کہ براہ کرم اپنے واجبات
     <span style="font-weight: bold; color: #0000FF;">${formattedCtaDate}</span>
     تک جمع کروائیں، واجبات کی عدم ادائیگی کی صورت میں، کمپنی ٹیلی فون اور اس سے منسلک خدمات منقطع کرنے کا حق محفوظ رکھتی ہے۔`;
     
@@ -86,11 +86,12 @@ function generateStyledTemplate(record) {
             /* Header Section */
             .header {
                 display: flex;
-                justify-content: space-between;
+                justify-content: space-around;
                 align-items: flex-start;
                 margin-bottom: 20px;
                 border-bottom: 1px solid #eee;
                 padding-bottom: 10px;
+                text-align:right;
             }
 
             .logo-text {
@@ -103,14 +104,15 @@ function generateStyledTemplate(record) {
             }
 
             .logo-text img {
-                height: 50px; /* Adjusted height for a typical logo */
+                height: 80px; /* Adjusted height for a typical logo */
                 margin-bottom: 5px;
             }
 
             .ptcl-header {
                 display: flex;
                 flex-direction: column;
-                align-items: flex-end;
+                align-items: center;
+                jusitfy-items:center;
                 text-align: right;
                 direction: rtl; /* Explicitly set to RTL */
             }
@@ -139,11 +141,16 @@ function generateStyledTemplate(record) {
             .user-details, .account-details {
                 width: 48%; /* Adjust for spacing */
                 direction: ltr; /* English content, set to LTR */
+                
+
             }
             
             .user-details {
                 border: 1px solid #ddd;
                 padding: 10px;
+                display:flex;
+                flex-direction:column;
+                align-items:flex-start;
             }
 
             .account-details {
@@ -154,12 +161,12 @@ function generateStyledTemplate(record) {
             }
 
             .account-details strong {
-                text-align: left; /* Aligns the labels to the left */
+                text-align: right; /* Aligns the labels to the left */
                 font-weight: normal;
             }
 
             .account-details .value {
-                text-align: right; /* Aligns the values to the right */
+                text-align: left; /* Aligns the values to the right */
                 font-weight: bold;
             }
             
@@ -174,13 +181,14 @@ function generateStyledTemplate(record) {
             /* Notice Title */
             .notice-title-container {
                 display: flex;
+                flex-direction:row-reverse;
                 justify-content: center;
                 margin: 30px 0 10px 0;
                 position: relative;
             }
 
             .defaulter-notice {
-                background-color: #f7e07a; /* Yellow box color */
+                background-color: #ffd000ff; /* Yellow box color */
                 padding: 5px 30px;
                 font-size: 28px;
                 font-weight: 900;
@@ -194,13 +202,15 @@ function generateStyledTemplate(record) {
                 top: -20px;
                 left: 0;
                 font-size: 18px;
-                text-align: center;
+                text-align: right;
                 direction: rtl;
+                color:red;
             }
             
             .akhir-moqa p {
                 margin: 0;
                 font-weight: bold;
+                outline: 2px solid red;
             }
 
             /* Main Notice Text */
@@ -351,6 +361,10 @@ function generateStyledTemplate(record) {
             }
             .eng-field-value {
                 font-weight: bold;
+                direction:ltr;
+            }
+            .red {
+            color:red;
             }
             
         </style>
@@ -433,19 +447,20 @@ function generateStyledTemplate(record) {
             <div class="note-container">
                 <span class="note-header">نوٹ</span>
                 <ul class="note-list">
-                    <li><span style="font-weight: bold; color: #d9534f;">1-</span> <span class="text-content">
+                    <li><span style="font-weight: bold; color: #d9534f;">1-یہ نوٹس درج ذیل برانچوں میں ادا کریں</span> <span class="text-content">
                         <span style="direction: ltr; text-align: left; display: inline-block;">Joint Shop Ufone/PTCL, PCPM Machines, UPTCL App/Mobile App, Online PTCL Bill/Web payment through Debit & Credit card, U-Bank/U-Paisa, Jazzcash, Easypaisa,</span>
                     </span></li>
-                    <li><span style="font-weight: bold;">2-</span> <span class="text-content">یہ بل تمام برانچوں میں ان برانچوں میں دی گئی اکاؤنٹ آئی ڈی 
+                    <li><span style="font-weight: bold;">2-</span> <span class="text-content">یہ بل  ان برانچوں میں دی گئی اکاؤنٹ آئی ڈی 
                     <span style="font-weight: bold; color: #0000FF;">${record.ac_id}</span>
                     کے ساتھ ادا کیا جا سکتا ہے۔</span></li>
                     <li><span style="font-weight: bold;">3-</span> <span class="text-content">بل کی ادائیگی کے بعد ماڈیم (ADSL,VDSL,IPTV,GPON) دفترِ ہذا میں جمع کروائیں۔</span></li>
+                    <li><span style="font-weight: bold;">4-</span> <span class="text-content">بل کی ادائیگی کے بعد نمبر کی بحالی کے لئے ${record.inspector} واٹس ایپ پر رابطہ کریں۔</span></li>
                     
                 </ul>
             </div>
             
             <div class="contact-section">
-                <div class="contact-title">
+                <div class="contact-title red">
                     مزید معلومات کے لیے رابطہ کریں
                 </div>
                 

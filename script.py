@@ -30,7 +30,7 @@ def parse_time(value):
     return None
 
 # --- Load Excel File ---
-xls_path = "Teacher attendace list.xls"
+xls_path = "exp logs.xls"
 try:
     print("📂 Reading Excel file...")
     df = pd.read_excel(xls_path, engine="xlrd")
