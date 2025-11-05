@@ -29,11 +29,11 @@ def parse_time(value):
             continue
     return None
 
-# --- Load Excel File ---
-xls_path = "exp logs.xls"
+# --- Load Excel File (.xlsx) ---
+xls_path = "October_logs.xlsx"
 try:
     print("📂 Reading Excel file...")
-    df = pd.read_excel(xls_path, engine="xlrd")
+    df = pd.read_excel(xls_path, engine="openpyxl")
 except Exception as e:
     print("❌ Could not read file:", e)
     exit()
@@ -47,10 +47,10 @@ print("🗂️ Columns Detected:", df.columns.tolist())
 # --- Parse Dates ---
 try:
     print("\n🕐 Parsing 'Date' column...")
-    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce', dayfirst=True)
 except Exception as e:
     print("❌ Date parsing failed:", e)
-    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce', dayfirst=True)
 
 df = df.dropna(subset=['Date'])  # Remove unparsed dates
 print("✅ Dates parsed. Sample:", df['Date'].dropna().unique()[:5])
@@ -186,3 +186,4 @@ for name in df['Name'].unique():
 summary_df = pd.DataFrame(summary_rows)
 summary_df.to_excel("attendance_summary_by_date.xlsx", index=False)
 print("\n✅ Summary exported to 'attendance_summary_by_date.xlsx'")
+
