@@ -30,10 +30,10 @@ def parse_time(value):
     return None
 
 # --- Load Excel File (.xlsx) ---
-xls_path = "October_logs.xlsx"
+xls_path = "november_logs.xls"
 try:
     print("📂 Reading Excel file...")
-    df = pd.read_excel(xls_path, engine="openpyxl")
+    df = pd.read_excel(xls_path,engine="xlrd")
 except Exception as e:
     print("❌ Could not read file:", e)
     exit()

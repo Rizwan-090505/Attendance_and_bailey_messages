@@ -3,6 +3,7 @@
     "@hapi/boom": "^10.0.1",
     "@supabase/supabase-js": "^2.53.0",
     "@whiskeysockets/baileys": "^6.7.18",
+    "csv-parser": "^3.2.0",
     "mime-types": "^3.0.1",
     "node-html-to-image": "^5.0.0",
     "qrcode": "^1.5.4",
