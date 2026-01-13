@@ -1,0 +1,3 @@
+- Sync uv 
+- main.py (older script)
+- now use GUI.py 
