@@ -2,6 +2,11 @@ import sys
 import pandas as pd
 from datetime import datetime, timedelta
 import os
+import io # New: For handling image buffers
+
+# --- Matplotlib for Graphs ---
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 # --- Qt Imports ---
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
@@ -11,52 +16,40 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                                QTimeEdit, QTableWidget, QTableWidgetItem, QTextEdit, 
                                QProgressBar, QSplitter)
 from PySide6.QtCore import Qt, QAbstractTableModel, QThread, Signal, QDate, QTime
-from PySide6.QtGui import QColor, QFont, QIcon
+from PySide6.QtGui import QColor
 
 # --- PDF Generation Imports ---
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether, Image as RLImage
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch, mm
+from reportlab.lib.units import inch
 
 # =============================================================================
 # HELPER: LOGIC ENGINE (Centralized Rules)
 # =============================================================================
 def check_attendance_status(cin, cout, shift_in, shift_out):
-    """
-    Returns: (List of Status Strings, Background Color for Report)
-    OPTIMIZED FOR B&W PRINTING (Grayscale)
-    """
     status_flags = []
     
-    # Define Grayscale Colors
-    # very light grey for minor infractions
+    # Grayscale/Report Colors
     col_minor = colors.Color(0.92, 0.92, 0.92) 
-    # medium grey for major infractions (Absent/Suspicious)
     col_major = colors.Color(0.75, 0.75, 0.75) 
 
-    # 1. ABSENT
     if not cin and not cout:
         return ["Absent"], col_major
 
-    # 2. SUSPICIOUS (No In but Yes Out)
     if not cin and cout:
         return ["Suspicious (No In)"], col_major
 
-    # 3. PRESENT (Standard checks)
-    # Check Late
     if cin and cin > shift_in:
         status_flags.append("Late")
 
-    # Check Early
     if cout:
         if cout < shift_out: 
             status_flags.append("Early")
     elif cin and not cout:
         status_flags.append("No Out")
 
-    # Determine Color based on flags
     bg_color = colors.white
     if "Absent" in status_flags or "Suspicious (No In)" in status_flags:
         bg_color = col_major
@@ -210,7 +203,7 @@ class AnalysisWorker(QThread):
 class AttendanceApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Attendance Analytics Pro (B&W Edition)")
+        self.setWindowTitle("Attendance Analytics Pro (Report Edition)")
         self.resize(1200, 850)
         self.raw_df = None
         self.summary_df = None
@@ -403,7 +396,7 @@ class AttendanceApp(QMainWindow):
         self.btn_pdf.setEnabled(False)
         self.btn_pdf.clicked.connect(self.export_pdf)
 
-        self.btn_overall = QPushButton("📊 Overall Summary (PDF)")
+        self.btn_overall = QPushButton("📊 Executive Summary Report (PDF)")
         self.btn_overall.setEnabled(False)
         self.btn_overall.setStyleSheet("background-color: #0078D7; color: white;")
         self.btn_overall.clicked.connect(self.export_overall_pdf)
@@ -476,9 +469,7 @@ class AttendanceApp(QMainWindow):
             elements = []
             styles = getSampleStyleSheet()
             
-            # Custom Styles
             title_style = ParagraphStyle('MainTitle', parent=styles['Heading1'], alignment=1, fontSize=16, spaceAfter=10)
-            header_style = ParagraphStyle('SubHeader', parent=styles['Normal'], fontSize=11, leading=14)
             
             df = self.context_data['clean_df']
             col_map = self.context_data['col_map']
@@ -489,19 +480,16 @@ class AttendanceApp(QMainWindow):
             names = df[col_map['name']].unique()
             
             for name in names:
-                # 1. Prepare Data & Count Stats first
                 person_df = df[df[col_map['name']] == name]
-                
                 table_data = [["Date", "In Time", "Out Time", "Status"]]
                 row_colors = [] 
                 
-                # Counters
                 cnt_late = 0
                 cnt_early = 0
                 cnt_absent = 0
                 cnt_suspicious = 0
                 
-                row_idx = 1 # Start after header
+                row_idx = 1
 
                 for date in pd.date_range(start=min_d, end=max_d):
                     if date.weekday() == 6 or date in holidays: continue
@@ -514,7 +502,6 @@ class AttendanceApp(QMainWindow):
                         cin = self.worker.parse_time(record[col_map['in']].values[0])
                         cout = self.worker.parse_time(record[col_map['out']].values[0])
 
-                    # Status & Counting
                     req_out = shift['friout'] if date.weekday() == 4 else shift['cout']
                     flags, bg_col = check_attendance_status(cin, cout, shift['cin'], req_out)
 
@@ -534,10 +521,8 @@ class AttendanceApp(QMainWindow):
                         row_colors.append((row_idx, bg_col))
                     row_idx += 1
 
-                # 2. HEADER BLOCK (Report Title + Name + Stats)
                 elements.append(Paragraph("ATTENDANCE REPORT", title_style))
                 
-                # Info Table (Top)
                 info_data = [
                     [f"Name: {name}", f"Date Range: {min_d.strftime('%Y-%m-%d')} to {max_d.strftime('%Y-%m-%d')}"],
                     [f"Lates: {cnt_late} | Early: {cnt_early} | Absent: {cnt_absent} | Suspicious: {cnt_suspicious}", ""]
@@ -551,10 +536,7 @@ class AttendanceApp(QMainWindow):
                 elements.append(t_info)
                 elements.append(Spacer(1, 10))
 
-                # 3. ATTENDANCE TABLE
                 t = Table(table_data, colWidths=[100, 80, 80, 200])
-                
-                # Base Style (Dark Header, Grayscale body)
                 tbl_style_cmds = [
                     ('BACKGROUND', (0,0), (-1,0), colors.black),
                     ('TEXTCOLOR', (0,0), (-1,0), colors.white),
@@ -563,7 +545,6 @@ class AttendanceApp(QMainWindow):
                     ('ALIGN', (1,0), (2,-1), 'CENTER'),
                 ]
                 
-                # Apply Grayscale Conditional Row Colors
                 for r_idx, colr in row_colors:
                     tbl_style_cmds.append(('BACKGROUND', (0, r_idx), (-1, r_idx), colr))
 
@@ -571,31 +552,27 @@ class AttendanceApp(QMainWindow):
                 elements.append(t)
                 elements.append(Spacer(1, 20))
 
-                # 4. PAYROLL & SIGNATURE SECTION (Footer)
-                # We use a Table to create the form layout
                 payroll_data = [
                     ["PAYROLL CALCULATION & ACKNOWLEDGMENT", "", ""],
                     ["Total Amount: _____________", "Per Day Ded.: _____________", "Ded. Days: _____________"],
                     ["Ded. Amount: _____________", "Payable Amt: _____________", ""],
-                    ["", "", ""], # Spacer row
+                    ["", "", ""], 
                     ["Receiving Date: _____________", "Signature: __________________________", ""]
                 ]
                 
                 t_pay = Table(payroll_data, colWidths=[170, 170, 170])
                 t_pay.setStyle(TableStyle([
-                    ('SPAN', (0,0), (-1,0)), # Merge Title
+                    ('SPAN', (0,0), (-1,0)), 
                     ('ALIGN', (0,0), (-1,0), 'LEFT'),
                     ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
                     ('FONTSIZE', (0,0), (-1,0), 10),
                     ('BOTTOMPADDING', (0,0), (-1,0), 10),
-                    ('BOTTOMPADDING', (0,1), (-1,2), 15), # Space for writing
+                    ('BOTTOMPADDING', (0,1), (-1,2), 15), 
                     ('BOTTOMPADDING', (0,4), (-1,4), 5),
-                    # Optional: Add a border around the payroll box
                     ('BOX', (0,0), (-1,-1), 1, colors.black),
                     ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
                 ]))
                 
-                # Keep footer with some previous content if possible, else break
                 elements.append(KeepTogether(t_pay))
                 elements.append(PageBreak())
 
@@ -606,24 +583,83 @@ class AttendanceApp(QMainWindow):
             self.log(str(e))
             QMessageBox.critical(self, "Error", str(e))
 
-    # --- EXPORT: OVERALL SUMMARY ---
+    # --- NEW: EXECUTIVE SUMMARY WITH GRAPHS ---
     def export_overall_pdf(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Save Overall Report", "attendance_overall.pdf", "PDF Files (*.pdf)")
+        path, _ = QFileDialog.getSaveFileName(self, "Save Executive Report", "attendance_executive_summary.pdf", "PDF Files (*.pdf)")
         if not path: return
         try:
-            self.log("Generating Overall Summary...")
-            doc = SimpleDocTemplate(path, pagesize=A4, rightMargin=30, leftMargin=30)
+            self.log("Generating Executive Report with Graphs...")
+            
+            # 1. Setup Data for Visuals
+            total_present = self.summary_df['Present'].sum()
+            total_absent = self.summary_df['Absents'].sum()
+            total_late = self.summary_df['Lates'].sum()
+            total_early = self.summary_df['Early'].sum()
+            
+            top_lates = self.summary_df.nlargest(5, 'Lates')
+            top_absents = self.summary_df.nlargest(5, 'Absents')
+
+            # 2. Setup Document
+            doc = SimpleDocTemplate(path, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=40, bottomMargin=40)
             elements = []
             styles = getSampleStyleSheet()
-
-            elements.append(Paragraph("OVERALL ATTENDANCE SUMMARY", styles['Title']))
+            
+            # --- PAGE 1: VISUAL ANALYTICS ---
+            elements.append(Paragraph("Executive Attendance Summary", styles['Title']))
+            elements.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d')}", styles['Normal']))
             elements.append(Spacer(1, 20))
 
-            # Headers
+            # Helper to Convert Matplotlib Plot to ReportLab Image
+            def fig_to_image(fig):
+                buf = io.BytesIO()
+                fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+                buf.seek(0)
+                plt.close(fig) # Close to free memory
+                return RLImage(buf, width=450, height=250)
+
+            # GRAPH 1: Pie Chart (Overall Distribution)
+            fig1, ax1 = plt.subplots(figsize=(6, 3.5))
+            labels = ['Present', 'Absent', 'Late', 'Early']
+            sizes = [total_present, total_absent, total_late, total_early]
+            colors_list = ['#4CAF50', '#F44336', '#FF9800', '#2196F3'] # Green, Red, Orange, Blue
+            wedges, texts, autotexts = ax1.pie(sizes, labels=labels, autopct='%1.1f%%', colors=colors_list, startangle=90)
+            ax1.axis('equal')
+            plt.title("Overall Attendance Distribution")
+            plt.setp(autotexts, size=8, weight="bold", color="white")
+            
+            elements.append(fig_to_image(fig1))
+            elements.append(Spacer(1, 20))
+
+            # GRAPH 2: Top 5 Late Comers (Bar Chart)
+            if not top_lates.empty and top_lates['Lates'].sum() > 0:
+                fig2, ax2 = plt.subplots(figsize=(7, 3.5))
+                ax2.bar(top_lates['Name'], top_lates['Lates'], color='#FF9800')
+                ax2.set_title("Top 5 Employees: Late Arrivals")
+                ax2.set_ylabel("Count")
+                plt.xticks(rotation=15, ha='right', fontsize=8)
+                plt.grid(axis='y', linestyle='--', alpha=0.7)
+                elements.append(fig_to_image(fig2))
+                elements.append(Spacer(1, 10))
+
+            # GRAPH 3: Top 5 Absentees (Bar Chart)
+            if not top_absents.empty and top_absents['Absents'].sum() > 0:
+                fig3, ax3 = plt.subplots(figsize=(7, 3.5))
+                ax3.bar(top_absents['Name'], top_absents['Absents'], color='#F44336')
+                ax3.set_title("Top 5 Employees: Absences")
+                ax3.set_ylabel("Count")
+                plt.xticks(rotation=15, ha='right', fontsize=8)
+                plt.grid(axis='y', linestyle='--', alpha=0.7)
+                elements.append(fig_to_image(fig3))
+            
+            elements.append(PageBreak())
+
+            # --- PAGE 2+: HEATMAP DATA TABLE ---
+            elements.append(Paragraph("Detailed Employee Statistics (Heatmap)", styles['Heading2']))
+            elements.append(Spacer(1, 10))
+
             headers = ["Name", "Present", "Late", "Early", "Absent", "Suspic."]
             data = [headers]
             
-            # Fill Data
             for _, row in self.summary_df.iterrows():
                 data.append([
                     str(row['Name']),
@@ -636,39 +672,49 @@ class AttendanceApp(QMainWindow):
 
             t = Table(data, colWidths=[150, 60, 60, 60, 60, 60])
             
-            # Dynamic Styling for Overall Table (Grayscale Optimized)
+            # Base Style
             style_cmds = [
-                ('BACKGROUND', (0,0), (-1,0), colors.black),
+                ('BACKGROUND', (0,0), (-1,0), colors.darkslategrey),
                 ('TEXTCOLOR', (0,0), (-1,0), colors.white),
                 ('GRID', (0,0), (-1,-1), 1, colors.black),
                 ('FONTSIZE', (0,0), (-1,-1), 10),
                 ('ALIGN', (1,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ]
 
-            # Conditional Formatting (Grayscale Heatmap)
-            col_warn = colors.Color(0.9, 0.9, 0.9) # Light
-            col_crit = colors.Color(0.7, 0.7, 0.7) # Darker
+            # Heatmap Logic (Conditional Formatting)
+            # Define severity colors
+            c_safe = colors.white
+            c_warn = colors.Color(1, 0.9, 0.7) # Light Orange
+            c_bad  = colors.Color(1, 0.6, 0.6) # Light Red
+            c_crit = colors.Color(0.8, 0.2, 0.2) # Dark Red (Text White)
 
             for i, row in enumerate(data[1:], start=1):
-                # Late > 3 -> Light Grey
-                if int(row[2]) > 3: 
-                    style_cmds.append(('BACKGROUND', (2, i), (2, i), col_warn))
-                # Early > 3 -> Light Grey
-                if int(row[3]) > 3: 
-                    style_cmds.append(('BACKGROUND', (3, i), (3, i), col_warn))
-                # Absent > 2 -> Darker Grey
-                if int(row[4]) > 2: 
-                    style_cmds.append(('BACKGROUND', (4, i), (4, i), col_crit))
-                # Suspicious > 0 -> Darker Grey
-                if int(row[5]) > 0: 
-                    style_cmds.append(('BACKGROUND', (5, i), (5, i), col_crit))
+                # Late Column (Index 2)
+                lates = int(row[2])
+                if lates >= 5: 
+                    style_cmds.append(('BACKGROUND', (2, i), (2, i), c_bad))
+                elif lates >= 3:
+                    style_cmds.append(('BACKGROUND', (2, i), (2, i), c_warn))
+                
+                # Absent Column (Index 4)
+                absents = int(row[4])
+                if absents >= 3:
+                    style_cmds.append(('BACKGROUND', (4, i), (4, i), c_bad))
+                elif absents >= 1:
+                    style_cmds.append(('BACKGROUND', (4, i), (4, i), c_warn))
+                
+                # Suspicious Column (Index 5)
+                susp = int(row[5])
+                if susp > 0:
+                    style_cmds.append(('BACKGROUND', (5, i), (5, i), colors.lightgrey))
 
             t.setStyle(TableStyle(style_cmds))
             elements.append(t)
-            doc.build(elements)
             
-            self.log(f"✅ Overall PDF Saved: {path}")
-            QMessageBox.information(self, "Success", "Overall Summary Generated!")
+            doc.build(elements)
+            self.log(f"✅ Executive Report Saved: {path}")
+            QMessageBox.information(self, "Success", "Executive Report with Graphs Generated!")
 
         except Exception as e:
             self.log(str(e))
